@@ -10,6 +10,6 @@ steps:
   - template: templates/veracode-sandbox.yml
     parameters:
       pathList: '$(System.DefaultWorkingDirectory)\pathone\, $(System.DefaultWorkingDirectory)\pathtwo\, $(System.DefaultWorkingDirectory)\paththree\'
-      epicTeam: 'MyTeam'
+      teamName: 'MyTeam'
       filesToInclude: '*.js, *.ts, package-lock.json, package.json'
       additionalArguments: ''
