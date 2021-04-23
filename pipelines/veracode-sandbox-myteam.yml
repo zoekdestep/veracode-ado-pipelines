@@ -1,0 +1,15 @@
+# Pipeline to run a sandboxed Veracode policy scan as per the profile policy for the MyTeam team.
+# This pipeline can be run to see how a team's code complies to the fetched policy, without influencing the overall security score of the entire application.
+
+trigger: none
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - template: templates/veracode-sandbox.yml
+    parameters:
+      pathList: '$(System.DefaultWorkingDirectory)\pathone\, $(System.DefaultWorkingDirectory)\pathtwo\, $(System.DefaultWorkingDirectory)\paththree\'
+      epicTeam: 'MyTeam'
+      filesToInclude: '*.js, *.ts, package-lock.json, package.json'
+      additionalArguments: ''

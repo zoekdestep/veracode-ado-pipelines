@@ -1,0 +1,32 @@
+# Pipeline template to run a sandboxed Veracode policy scan as per fetched policy for a specific team.
+
+parameters:
+- name: pathList
+  type: string
+- name: teamName
+  type: string
+- name: filesToInclude
+  type: string
+- name: additionalArguments
+  type: string
+
+steps:
+# Zip and scan all files in the folder passed as parameter.
+  - powershell: |
+      Get-ChildItem -Path ${{ parameters.pathList }} -Include ${{ parameters.filesToInclude}} ${{ parameters.additionalArguments }} -Recurse -Force | Compress-Archive -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-${{ parameters.teamName }}.zip"
+    displayName: Zip ${{ parameters.teamName }} team files
+
+  - task: Veracode@3
+    inputs:
+      ConnectionDetailsSelection: 'Endpoint'
+      AnalysisService: 'MyProject-Veracode'
+      veracodeAppProfile: 'MyProject'
+      version: '$(build.buildNumber)-${{ parameters.teamName }}'
+      filepath: '$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-${{ parameters.teamName }}.zip'
+      sandboxName: '${{ parameters.teamName }} team'
+      createProfile: false
+      failTheBuildIfVeracodeScanDidNotInitiate: true
+      scanStatusCheckInterval: '60'
+      importResults: true
+      failBuildOnPolicyFail: false
+    displayName: Run Veracode policy scan on ${{ parameters.teamName }} team files

@@ -1,0 +1,94 @@
+# Pipeline to run a Veracode pipeline scan, to scan for severities and CWEs according to the fetched security policy.
+# You can run this pipeline any time in the development process, to see if you are introducing security flaws in your code.
+
+trigger: none
+
+pool:
+  vmImage: windows-latest
+
+# If you created a DotNet project, make sure that the .dll, .exe and .pdb are included here
+variables:
+  - name: DotNetProjects
+    value: MyProject.*.dll, MyProject.*.exe, MyProject.*.pdb
+
+steps:
+  - template: /templates/azure-key-vault-secrets.yml
+    parameters:
+      AzureSubscription: $(azure_connection_name)
+      KeyVaultName: my-keyvault
+
+# Download and extract the pipeline scan from Veracode and fetch the policy
+  - script: curl -O -L https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip
+    displayName: Download pipeline scan
+
+  - task: ExtractFiles@1
+    inputs:
+      archiveFilePatterns: 'pipeline-scan-LATEST.zip'
+      cleanDestinationFolder: false
+    displayName: Extract Veracode pipeline scan
+
+  - script: java -jar pipeline-scan.jar --veracode_api_id "$(VERACODE-API-ID)" --veracode_api_key "$(VERACODE-API-KEY)" --request_policy "Name Of Policy"
+    env:
+      VERACODE_API_ID: $(VERACODE-API-ID)
+      VERACODE_API_KEY: $(VERACODE-API-KEY)
+    displayName: Fetch security policy
+
+# Zip and scan Javascript files in the entire project
+  - powershell: |
+      Get-ChildItem -Path "$(System.DefaultWorkingDirectory)\*.js", "$(System.DefaultWorkingDirectory)\package-lock.json", "$(System.DefaultWorkingDirectory)\package.json" -Recurse -Force | Compress-Archive -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-javascript.zip"
+    displayName: Zip Javascript files
+
+  - script: java -jar pipeline-scan.jar --veracode_api_id "$(VERACODE-API-ID)" --veracode_api_key "$(VERACODE-API-KEY)" --file "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-javascript.zip" --policy_file="Name_Of_Policy.json" --issue_details true
+    env:
+      VERACODE_API_ID: $(VERACODE-API-ID)
+      VERACODE_API_KEY: $(VERACODE-API-KEY)
+    displayName: Run Veracode pipeline scan on Javascript files
+    continueOnError: true
+
+# Zip and scan Typescript files in the entire project
+  - powershell: |
+      Get-ChildItem -Path "$(System.DefaultWorkingDirectory)\*.ts", "$(System.DefaultWorkingDirectory)\package-lock.json", "$(System.DefaultWorkingDirectory)\package.json" -Recurse -Force | Compress-Archive -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-typescript.zip"
+    displayName: Zip Typescript files
+
+  - script: java -jar pipeline-scan.jar --veracode_api_id "$(VERACODE-API-ID)" --veracode_api_key "$(VERACODE-API-KEY)" --file "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-typescript.zip" --policy_file="Name_Of_Policy.json" --issue_details true
+    env:
+      VERACODE_API_ID: $(VERACODE-API-ID)
+      VERACODE_API_KEY: $(VERACODE-API-KEY)
+    displayName: Run Veracode pipeline scan on Typescript files
+    continueOnError: true
+
+# Build, zip and scan DotNet files in the entire project
+  - task: DotNetCoreCLI@2
+    inputs:
+      command: restore
+      projects: "**/*.csproj"
+      workingDirectory: $(System.DefaultWorkingDirectory)
+    displayName: Restore DotNet packages
+
+  - task: DotNetCoreCLI@2
+    inputs:
+      command: build
+      projects: "**/*.csproj"
+      workingDirectory: $(System.DefaultWorkingDirectory)
+    displayName: DotNet build
+
+  - task: DotNetCoreCLI@2
+    inputs:
+      command: publish
+      projects: "**/*.csproj"
+      publishWebProjects: false
+      arguments: '-c Debug -o $(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet'
+      zipAfterPublish: false
+    displayName: DotNet publish
+
+  - powershell: |
+      Get-ChildItem -Path $(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet -Recurse -Include $(DotNetProjects) |
+      Compress-Archive -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet-compressed.zip"
+    displayName: Zip DotNet files
+
+  - script: java -jar pipeline-scan.jar --veracode_api_id "$(VERACODE-API-ID)" --veracode_api_key "$(VERACODE-API-KEY)" --file "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet-compressed.zip" --policy_file="Name_Of_Policy.json" --issue_details true
+    env:
+      VERACODE_API_ID: $(VERACODE-API-ID)
+      VERACODE_API_KEY: $(VERACODE-API-KEY)
+    displayName: Run Veracode pipeline scan on DotNet files
+    continueOnError: true

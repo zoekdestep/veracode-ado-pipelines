@@ -1,0 +1,74 @@
+# Pipeline to run a Veracode policy scan as per the profile policy.
+
+trigger: none
+
+pool:
+  vmImage: windows-latest
+
+# If you created a DotNet project, make sure that the .dll, .exe and .pdb are included here
+variables:
+  - name: DotNetProjects
+    value: MyProject.*.dll, MyProject.*.exe, MyProject.*.pdb
+
+steps:
+
+# Zip and scan all files in the entire project
+  - task: DotNetCoreCLI@2
+    inputs:
+      command: restore
+      projects: "**/*.csproj"
+      workingDirectory: $(System.DefaultWorkingDirectory)
+    displayName: Restore DotNet packages
+
+  - task: DotNetCoreCLI@2
+    inputs:
+      command: build
+      projects: "**/*.csproj"
+      workingDirectory: $(System.DefaultWorkingDirectory)
+    displayName: DotNet build
+
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: $(System.DefaultWorkingDirectory)
+      Contents: '**/bin/$(buildConfiguration)/**'
+      TargetFolder: '$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet'
+    displayName: Copy DotNet Files
+
+  - powershell: |
+      Get-ChildItem -Path $(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet -Recurse -Include $(DotNetProjects) |
+      Compress-Archive -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip"
+    displayName: Zip DotNet files
+
+  - powershell: |
+      Get-ChildItem -Path "$(System.DefaultWorkingDirectory)\*.js", "$(System.DefaultWorkingDirectory)\*.ts", "$(System.DefaultWorkingDirectory)\package-lock.json", "$(System.DefaultWorkingDirectory)\package.json" -Recurse -Force |
+      Compress-Archive -Update -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip"
+    displayName: Zip Javascript files
+
+  - powershell: |
+      Get-ChildItem -Path "$(System.DefaultWorkingDirectory)\*.js", "$(System.DefaultWorkingDirectory)\*.ts", "$(System.DefaultWorkingDirectory)\package-lock.json", "$(System.DefaultWorkingDirectory)\package.json" -Recurse -Force |
+      Compress-Archive -Update -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip"
+    displayName: Zip Typescript files
+
+  - powershell: |
+      Expand-Archive -LiteralPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip" -DestinationPath $(Build.ArtifactStagingDirectory)\output -Force
+    displayName: Expand folder
+
+  - powershell: |
+      Get-ChildItem -Path $(Build.ArtifactStagingDirectory)\output -Recurse
+    displayName: Show files
+
+  - task: Veracode@3
+    inputs:
+      ConnectionDetailsSelection: 'Endpoint'
+      AnalysisService: 'MyProject-Veracode'
+      veracodeAppProfile: 'MyProject'
+      version: 'MyProject-$(build.buildNumber)'
+      filepath: '$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip'
+      createSandBox: false
+      createProfile: false
+      failTheBuildIfVeracodeScanDidNotInitiate: true
+      topLevel: true
+      scanStatusCheckInterval: '60'
+      importResults: true
+      failBuildOnPolicyFail: false
+    displayName: Run Veracode policy scan on all project files
