@@ -1,4 +1,6 @@
 # Pipeline to run a Veracode policy scan as per the profile policy.
+# Prior to running this pipeline you'll need to create a service connection to Veracode as per https://docs.veracode.com/r/Create_a_Service_Connection_in_Azure_DevOps
+# You'll also need to install the Azure DevOps Extension from https://marketplace.visualstudio.com/items?itemName=veracode.veracode-vsts-build-extension
 
 trigger: none
 
@@ -38,16 +40,18 @@ steps:
       Get-ChildItem -Path $(Build.ArtifactStagingDirectory)\$(Build.BuildId)-dotnet -Recurse -Include $(DotNetProjects) |
       Compress-Archive -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip"
     displayName: Zip DotNet files
+    
+  - powershell: |
+      $containsScriptFiles = Test-Path -Path "$(System.DefaultWorkingDirectory)\*.js", "$(System.DefaultWorkingDirectory)\*.ts"
+      Write-Output "##vso[task.setvariable variable=ContainsScriptFiles]$containsScriptFiles"
+    displayName: Check if project contains js / ts files
 
+# only add js & ts files if the project contains them
   - powershell: |
       Get-ChildItem -Path "$(System.DefaultWorkingDirectory)\*.js", "$(System.DefaultWorkingDirectory)\*.ts", "$(System.DefaultWorkingDirectory)\package-lock.json", "$(System.DefaultWorkingDirectory)\package.json" -Recurse -Force |
       Compress-Archive -Update -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip"
-    displayName: Zip Javascript files
-
-  - powershell: |
-      Get-ChildItem -Path "$(System.DefaultWorkingDirectory)\*.js", "$(System.DefaultWorkingDirectory)\*.ts", "$(System.DefaultWorkingDirectory)\package-lock.json", "$(System.DefaultWorkingDirectory)\package.json" -Recurse -Force |
-      Compress-Archive -Update -DestinationPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip"
-    displayName: Zip Typescript files
+    condition: eq(variables['ContainsScriptFiles'], True)
+    displayName: Zip Javascript and Typescript files
 
   - powershell: |
       Expand-Archive -LiteralPath "$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip" -DestinationPath $(Build.ArtifactStagingDirectory)\output -Force
@@ -66,9 +70,6 @@ steps:
       filepath: '$(Build.ArtifactStagingDirectory)\$(Build.BuildId)-policy-scan.zip'
       createSandBox: false
       createProfile: false
-      failTheBuildIfVeracodeScanDidNotInitiate: true
-      topLevel: true
-      scanStatusCheckInterval: '60'
       importResults: true
       failBuildOnPolicyFail: false
     displayName: Run Veracode policy scan on all project files
